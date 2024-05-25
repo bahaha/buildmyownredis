@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os/signal"
 	"strconv"
-	"syscall"
 
 	// Uncomment this block to pass the first stage
 	"net"
@@ -14,7 +12,7 @@ import (
 )
 
 var (
-	logger = slog.New(slog.NewTextHandler(os.Stdout))
+	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 )
 
 func NewRedisServer(ctx context.Context, port int) {
@@ -41,7 +39,7 @@ func NewRedisServer(ctx context.Context, port int) {
 					return
 				default:
 					logger.Error("Error accepting connection", "error", err)
-					continue
+
 				}
 			}
 			go handleConnection(ctx, conn)
@@ -52,7 +50,7 @@ func NewRedisServer(ctx context.Context, port int) {
 	logger.Info("Shutting down server")
 }
 
-func handleConnection(ctx ctx.Context, conn net.Conn) {
+func handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	logger.Info("Accepted connection", "remote_addr", conn.RemoteAddr())
@@ -63,6 +61,20 @@ func handleConnection(ctx ctx.Context, conn net.Conn) {
 		return
 	default:
 		// Handle the connection
+		buf := make([]byte, 128)
+		_, err := conn.Read(buf)
+		if err != nil {
+			logger.Error("Error reading from connection", "error", err)
+			return
+		}
+
+		logger.Debug("Received data", "data", string(buf))
+
+		_, err = conn.Write([]byte("+PONG\r\n"))
+		if err != nil {
+			logger.Error("Error writing to connection", "error", err)
+			return
+		}
 	}
 }
 
