@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"os/signal"
 	"strconv"
@@ -61,19 +63,30 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 		return
 	default:
 		// Handle the connection
-		buf := make([]byte, 128)
-		_, err := conn.Read(buf)
-		if err != nil {
-			logger.Error("Error reading from connection", "error", err)
-			return
-		}
+		buf := make([]byte, 1024)
 
-		logger.Debug("Received data", "data", string(buf))
+		for {
+			command, err := conn.Read(buf)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					logger.Info(
+						"Connection closed by remote host",
+						"remote_addr",
+						conn.RemoteAddr(),
+					)
+					break
+				}
+				logger.Error("Error reading from connection", "error", err)
+				return
+			}
 
-		_, err = conn.Write([]byte("+PONG\r\n"))
-		if err != nil {
-			logger.Error("Error writing to connection", "error", err)
-			return
+			logger.Info("Received command", "command", command)
+
+			_, err = conn.Write([]byte("+PONG\r\n"))
+			if err != nil {
+				logger.Error("Error writing to connection", "error", err)
+				return
+			}
 		}
 	}
 }
