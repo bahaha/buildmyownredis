@@ -2,96 +2,110 @@ package main
 
 import (
 	"context"
-	"errors"
-	"io"
 	"log/slog"
-	"os/signal"
-	"strconv"
-
-	// Uncomment this block to pass the first stage
 	"net"
 	"os"
+	"os/signal"
+	"strconv"
 )
 
 var (
-	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger            = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	defaultListenPort = 6379
 )
 
-func NewRedisServer(ctx context.Context, port int) {
+type Config struct {
+	Port int
+}
+
+type Server struct {
+	Config
+	listener net.Listener
+	peers    map[*Peer]bool
+
+	cmdParser Parser
+}
+
+func NewRedis(ctx context.Context, cfg Config) *Server {
+	if cfg.Port == 0 {
+		cfg.Port = defaultListenPort
+	}
+
+	return &Server{
+		Config:    cfg,
+		peers:     make(map[*Peer]bool),
+		cmdParser: NewResp(),
+	}
+}
+
+func (s *Server) Start(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	logger.Info("Starting TCP server", "port", port)
+	l, err := net.Listen("tcp", net.JoinHostPort("0.0.0.0", strconv.Itoa(s.Port)))
 
-	l, err := net.Listen("tcp", net.JoinHostPort("0.0.0.0", strconv.Itoa(port)))
 	if err != nil {
-		logger.Error("Failed to bind to port", "error", err)
+		slog.Error("Failed to bind to port", "error", err)
 		os.Exit(1)
 	}
 
-	logger.Info("Listening for connections on port", "port", port)
+	slog.Info("Listening on port", "addr", l.Addr())
+
+	s.listener = l
 
 	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				select {
-				case <-ctx.Done():
-					// Server is shutting down, exit the goroutine
-					return
-				default:
-					logger.Error("Error accepting connection", "error", err)
-
-				}
-			}
-			go handleConnection(ctx, conn)
+		<-ctx.Done()
+		slog.Info("Shutting down server")
+		s.listener.Close()
+		for peer := range s.peers {
+			peer.Close()
 		}
 	}()
+	s.Listen(ctx)
 
-	<-ctx.Done()
-	logger.Info("Shutting down server")
+	return nil
 }
 
-func handleConnection(ctx context.Context, conn net.Conn) {
+func (s *Server) Listen(ctx context.Context) error {
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				slog.Error("Error accepting connection", "error", err)
+			}
+			continue
+		}
+
+		go s.handleConnection(ctx, conn)
+	}
+}
+
+func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
-	logger.Info("Accepted connection", "remote_addr", conn.RemoteAddr())
+	slog.Info("Accepted connection", "remote_addr", conn.RemoteAddr())
+
+	peer := NewPeer(conn, s.cmdParser)
+	s.peers[peer] = true
+
+	defer func() {
+		delete(s.peers, peer)
+	}()
 
 	select {
 	case <-ctx.Done():
-		logger.Info("Connection closed due to server shutdown", "remote_addr", conn.RemoteAddr())
+		slog.Info("Connection closed due to server shutdown", "remote_addr", conn.RemoteAddr())
 		return
 	default:
-		// Handle the connection
-		buf := make([]byte, 1024)
-
-		for {
-			command, err := conn.Read(buf)
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					logger.Info(
-						"Connection closed by remote host",
-						"remote_addr",
-						conn.RemoteAddr(),
-					)
-					break
-				}
-				logger.Error("Error reading from connection", "error", err)
-				return
-			}
-
-			logger.Info("Received command", "command", command)
-
-			_, err = conn.Write([]byte("+PONG\r\n"))
-			if err != nil {
-				logger.Error("Error writing to connection", "error", err)
-				return
-			}
-		}
+		peer.WaitForCommand()
 	}
 }
 
 func main() {
 	ctx := context.Background()
-	NewRedisServer(ctx, 6379)
+	server := NewRedis(ctx, Config{Port: 6379})
+	server.Start(ctx)
 }
