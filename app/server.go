@@ -24,6 +24,7 @@ type Server struct {
 	peers    map[*Peer]bool
 
 	cmdParser Parser
+	storage   Storage
 }
 
 func NewRedis(ctx context.Context, cfg Config) *Server {
@@ -35,6 +36,7 @@ func NewRedis(ctx context.Context, cfg Config) *Server {
 		Config:    cfg,
 		peers:     make(map[*Peer]bool),
 		cmdParser: NewResp(),
+		storage:   NewMemoryStorage(),
 	}
 }
 
@@ -88,7 +90,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	slog.Info("Accepted connection", "remote_addr", conn.RemoteAddr())
 
-	peer := NewPeer(conn, s.cmdParser)
+	peer := NewPeer(conn, s.cmdParser, s.storage)
 	s.peers[peer] = true
 
 	defer func() {

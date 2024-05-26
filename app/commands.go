@@ -25,7 +25,7 @@ func (c *Command) String() string {
 }
 
 type CommandProcessor interface {
-	Process(*Command, Parser) ([]byte, error)
+	Process(*Command, Parser, Storage) ([]byte, error)
 }
 
 var (
@@ -33,33 +33,63 @@ var (
 		"COMMAND": &Great{},
 		"PING":    &Ping{},
 		"ECHO":    &Echo{},
+		"SET":     &Set{},
+		"GET":     &Get{},
 	}
 )
 
-func HandleCommand(cmd *Command, p Parser) ([]byte, error) {
-	handler, ok := handlers[strings.ToUpper(string(cmd.Name))]
+func HandleCommand(cmd *Command, p Parser, s Storage) ([]byte, error) {
+	name := strings.ToUpper(string(cmd.Name))
+	handler, ok := handlers[name]
 	if !ok {
-		return nil, errors.New("unknown command")
+		return nil, errors.New("unknown command: " + name)
 	}
 
-	return handler.Process(cmd, p)
+	return handler.Process(cmd, p, s)
 }
 
 type Great struct{}
 
-func (g *Great) Process(cmd *Command, parser Parser) ([]byte, error) {
-	return []byte("+OK\r\n"), nil
+func (g *Great) Process(cmd *Command, parser Parser, s Storage) ([]byte, error) {
+	return parser.MarshalSimpleString("OK")
 }
 
 type Ping struct{}
 
-func (p *Ping) Process(cmd *Command, parser Parser) ([]byte, error) {
-	return []byte("+PONG\r\n"), nil
+func (p *Ping) Process(cmd *Command, parser Parser, s Storage) ([]byte, error) {
+	return parser.MarshalSimpleString("PONG")
 }
 
 type Echo struct{}
 
-func (e *Echo) Process(cmd *Command, p Parser) ([]byte, error) {
+func (e *Echo) Process(cmd *Command, p Parser, s Storage) ([]byte, error) {
 	msg := cmd.Args[0]
 	return p.MarshalBulkString(string(msg))
+}
+
+type Set struct{}
+
+func (s *Set) Process(cmd *Command, p Parser, storage Storage) ([]byte, error) {
+	key := cmd.Args[0]
+	value := cmd.Args[1]
+
+	err := storage.Set(key, value)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.MarshalSimpleString("OK")
+}
+
+type Get struct{}
+
+func (g *Get) Process(cmd *Command, p Parser, storage Storage) ([]byte, error) {
+	key := cmd.Args[0]
+
+	value, err := storage.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.MarshalBulkString(string(value))
 }

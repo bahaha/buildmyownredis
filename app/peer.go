@@ -11,13 +11,15 @@ type Peer struct {
 	conn       net.Conn
 	remoteAddr net.Addr
 	parser     Parser
+	storage    Storage
 }
 
-func NewPeer(conn net.Conn, parser Parser) *Peer {
+func NewPeer(conn net.Conn, parser Parser, storage Storage) *Peer {
 	return &Peer{
 		conn:       conn,
 		remoteAddr: conn.RemoteAddr(),
 		parser:     parser,
+		storage:    storage,
 	}
 }
 
@@ -46,7 +48,7 @@ func (p *Peer) WaitForCommand() {
 		}
 		slog.Info("Received command from peer", "cmd", cmd)
 
-		resp, err := HandleCommand(cmd, p.parser)
+		resp, err := HandleCommand(cmd, p.parser, p.storage)
 		if err != nil {
 			slog.Error("Error handling command:", "error", err)
 			return
