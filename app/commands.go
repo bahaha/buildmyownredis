@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -35,6 +36,8 @@ var (
 		"ECHO":    &Echo{},
 		"SET":     &Set{},
 		"GET":     &Get{},
+		"DEL":     &Del{},
+		"EXPIRE":  &Expire{},
 	}
 )
 
@@ -78,6 +81,32 @@ func (s *Set) Process(cmd *Command, p Parser, storage Storage) ([]byte, error) {
 		return nil, err
 	}
 
+	optionalArgs := cmd.Args[2:]
+	nOptArgs := len(optionalArgs)
+	if nOptArgs > 0 {
+		if nOptArgs < 2 {
+			return nil, errors.New("No enough arguments for command SET")
+		}
+
+		timeUnit := strings.ToUpper(string(optionalArgs[0]))
+		timeValue := string(optionalArgs[1])
+
+		if timeUnit != "EX" && timeUnit != "PX" {
+			return nil, errors.New(
+				"Invalid time unit, only EX (seconds) and PX (milliseconds) are supported",
+			)
+		}
+
+		seconds, err := strconv.ParseFloat(timeValue, 64)
+		if err != nil {
+			return nil, err
+		}
+		if timeUnit == "PX" {
+			seconds /= 1000
+		}
+
+		storage.Expire(key, seconds)
+	}
 	return p.MarshalSimpleString("OK")
 }
 
@@ -91,5 +120,35 @@ func (g *Get) Process(cmd *Command, p Parser, storage Storage) ([]byte, error) {
 		return nil, err
 	}
 
+	if len(value) == 0 {
+		return p.MarshalNil()
+	}
 	return p.MarshalBulkString(string(value))
+}
+
+type Del struct{}
+
+func (d *Del) Process(cmd *Command, p Parser, storage Storage) ([]byte, error) {
+	key := cmd.Args[0]
+
+	err := storage.Del(key)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.MarshalSimpleString("OK")
+}
+
+type Expire struct{}
+
+func (e *Expire) Process(cmd *Command, p Parser, s Storage) ([]byte, error) {
+	key := cmd.Args[0]
+	timeValue := string(cmd.Args[1])
+	seconds, err := strconv.ParseFloat(timeValue, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Expire(key, seconds)
+	return p.MarshalSimpleString("OK")
 }

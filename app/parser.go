@@ -11,6 +11,7 @@ import (
 type Parser interface {
 	Parse([]byte) (*Command, error)
 
+	MarshalNil() ([]byte, error)
 	MarshalSimpleString(string) ([]byte, error)
 	MarshalBulkString(string) ([]byte, error)
 }
@@ -101,6 +102,10 @@ func (p *RESP) readLine(r *bufio.Reader) ([]byte, error) {
 	}
 
 	return bytes.TrimSuffix(line, DELIM), nil
+}
+
+func (p *RESP) MarshalNil() ([]byte, error) {
+	return []byte("$-1\r\n"), nil
 }
 
 func (p *RESP) MarshalSimpleString(s string) ([]byte, error) {
