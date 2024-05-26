@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"net"
 	"os"
@@ -106,8 +107,17 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
+var (
+	port int
+)
+
+func init() {
+	flag.IntVar(&port, "port", defaultListenPort, "port to listen on")
+	flag.Parse()
+}
+
 func main() {
 	ctx := context.Background()
-	server := NewRedis(ctx, Config{Port: 6379})
+	server := NewRedis(ctx, Config{Port: port})
 	server.Start(ctx)
 }
